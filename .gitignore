@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# Env
+.env
+venv/
+.env.local
+
+# VSCode
+.vscode/
+
+# Mac
+.DS_Store
+
+# Data
+*.h5
+*.hdf5
+
+# Logs
+logs/
+*.log
