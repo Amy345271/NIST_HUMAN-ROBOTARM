@@ -1,126 +1,175 @@
 #!/usr/bin/env python3
 """
-Convert ELAN .eaf annotation files to HDF5 segments_info structure used by REASSEMBLE.
+Convert ELAN .eaf annotations into the HDF5 `segments_info` structure.
 
-Usage:
-  python eaf_to_h5.py --eaf path/to/file.eaf --h5 path/to/file.h5 --high-tier HighLevel --low-tier LowLevel1 --low-tier LowLevel2
+High-level annotations are written as `segments_info/<index>` with:
+- `index` (int)
+- `start` / `end` (seconds, float)
+- `success` (0/1)
+- `text` (UTF-8 bytes)
 
-The script writes/overwrites the `segments_info` group in the target HDF5 file. Times in .eaf are milliseconds; we convert them to seconds.
+Low-level annotations are written under `segments_info/<index>/low_level/<subindex>`.
 
-Requires: pympi-ling (pip install pympi-ling), h5py
+ELAN uses milliseconds internally, so times are converted to seconds before writing.
 """
+
+from __future__ import annotations
+
 import argparse
 import os
 import sys
+from collections import defaultdict
+from typing import Dict, List, Tuple
+
 import h5py
-from typing import List, Tuple
 
 try:
     import pympi
-except Exception as e:
-    print('Missing dependency: pympi. Install with `pip install pympi-ling`')
-    raise
+except Exception as exc:  # pragma: no cover - dependency error path
+    raise SystemExit(
+        "Missing dependency `pympi-ling`. Install it with: pip install pympi-ling"
+    ) from exc
 
 
-def parse_args():
-    p = argparse.ArgumentParser(description='Convert ELAN .eaf to HDF5 segments_info')
-    p.add_argument('--eaf', required=True, help='Path to .eaf file')
-    p.add_argument('--h5', required=True, help='Target HDF5 file to write segments_info into')
-    p.add_argument('--high-tier', required=True, help='Tier name to use as high-level segments (exact match)')
-    p.add_argument('--low-tier', action='append', default=[], help='Tier name(s) to use as low-level annotations (can repeat)')
-    p.add_argument('--overwrite', action='store_true', help='Remove existing segments_info in HDF5 before writing')
-    p.add_argument('--success-labels', nargs='*', default=None,
-                   help='Optional list of labels that count as success; if omitted all segments set success=1')
-    return p.parse_args()
+Annotation = Tuple[float, float, str]
 
 
-def ms_to_s(ms: float) -> float:
-    return float(ms) / 1000.0
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Convert ELAN .eaf to HDF5 segments_info")
+    parser.add_argument("--eaf", required=True, help="Path to ELAN .eaf file")
+    parser.add_argument("--h5", required=True, help="Target HDF5 file")
+    parser.add_argument("--high-tier", required=True, help="High-level tier name")
+    parser.add_argument(
+        "--low-tier",
+        action="append",
+        default=[],
+        help="Low-level tier name; can be repeated",
+    )
+    parser.add_argument(
+        "--success-labels",
+        nargs="*",
+        default=None,
+        help="Optional labels that count as success; if omitted, success=1 for all segments",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing segments_info group",
+    )
+    return parser.parse_args()
 
 
-def collect_annotations(eaf_path: str, tier: str) -> List[Tuple[float, float, str]]:
+def ms_to_s(value_ms: float) -> float:
+    return float(value_ms) / 1000.0
+
+
+def load_tier_annotations(eaf_path: str, tier_name: str) -> List[Annotation]:
     eaf = pympi.Elan.Eaf(eaf_path)
-    if tier not in eaf.get_tier_names():
+    if tier_name not in eaf.get_tier_names():
         return []
-    ann = eaf.get_annotation_data_for_tier(tier)
-    # ann: list of (start, end, value) in ms
-    return [(float(a[0]), float(a[1]), a[2]) for a in ann]
+    annotations = eaf.get_annotation_data_for_tier(tier_name)
+    return [(float(start), float(end), str(text)) for start, end, text in annotations]
 
 
-def write_segments_info(h5_path: str, high_ann: List[Tuple[float, float, str]], low_ann_map: dict,
-                        overwrite: bool = False, success_labels: List[str] = None):
-    # high_ann: list of (start_ms, end_ms, label)
-    # low_ann_map: tier_name -> list of (start_ms, end_ms, label)
+def build_low_level_map(low_annotations: Dict[str, List[Annotation]]) -> Dict[int, List[Annotation]]:
+    """Flatten low-level annotations by integer insertion order.
 
+    This helper is used to keep low-level annotations grouped later by the high-level segment
+    that contains them.
+    """
+    grouped: Dict[int, List[Annotation]] = defaultdict(list)
+    idx = 0
+    for tier_name, annotations in low_annotations.items():
+        _ = tier_name
+        for ann in annotations:
+            grouped[idx].append(ann)
+            idx += 1
+    return grouped
+
+
+def assign_low_level_annotations(high_segment: Annotation, low_annotations: Dict[str, List[Annotation]]) -> List[Annotation]:
+    start_ms, end_ms, _ = high_segment
+    collected: List[Annotation] = []
+    for tier_name, annotations in low_annotations.items():
+        _ = tier_name
+        for low_start, low_end, low_text in annotations:
+            if low_start >= start_ms and low_end <= end_ms:
+                collected.append((low_start, low_end, low_text))
+    return sorted(collected, key=lambda item: item[0])
+
+
+def write_segments_info(
+    h5_path: str,
+    high_annotations: List[Annotation],
+    low_annotations: Dict[str, List[Annotation]],
+    overwrite: bool,
+    success_labels: List[str] | None,
+) -> None:
     if not os.path.exists(h5_path):
-        # create empty h5
-        with h5py.File(h5_path, 'w'):
+        with h5py.File(h5_path, "w"):
             pass
 
-    with h5py.File(h5_path, 'a') as f:
-        if 'segments_info' in f:
+    high_sorted = sorted(high_annotations, key=lambda item: item[0])
+
+    with h5py.File(h5_path, "a") as h5_file:
+        if "segments_info" in h5_file:
             if overwrite:
-                del f['segments_info']
+                del h5_file["segments_info"]
             else:
-                print('segments_info already exists in', h5_path, 'use --overwrite to replace')
-                raise SystemExit(1)
+                raise SystemExit(
+                    f"`segments_info` already exists in {h5_path}. Re-run with --overwrite to replace it."
+                )
 
-        segs = f.create_group('segments_info')
+        segments_group = h5_file.create_group("segments_info")
 
-        # sort high level by start
-        high_sorted = sorted(high_ann, key=lambda x: x[0])
+        for index, (start_ms, end_ms, text) in enumerate(high_sorted):
+            segment_group = segments_group.create_group(str(index))
+            segment_group.create_dataset("index", data=index)
+            segment_group.create_dataset("start", data=ms_to_s(start_ms))
+            segment_group.create_dataset("end", data=ms_to_s(end_ms))
 
-        for idx, (hs, he, hlabel) in enumerate(high_sorted):
-            grp = segs.create_group(str(idx))
-            grp.create_dataset('index', data=idx)
-            grp.create_dataset('start', data=ms_to_s(hs))
-            grp.create_dataset('end', data=ms_to_s(he))
-            success = 1
-            if success_labels is not None:
-                success = 1 if hlabel in success_labels else 0
-            grp.create_dataset('success', data=success)
-            grp.create_dataset('text', data=str(hlabel).encode('utf-8'))
+            if success_labels is None:
+                success = 1
+            else:
+                success = 1 if text in success_labels else 0
+            segment_group.create_dataset("success", data=success)
+            segment_group.create_dataset("text", data=text.encode("utf-8"))
 
-            # collect low-level annotations falling inside this high-level segment
-            sub_ann = []
-            for tier, anns in low_ann_map.items():
-                for (ls, le, llabel) in anns:
-                    # include if low segment lies within high segment (allow touching boundaries)
-                    if ls >= hs and le <= he:
-                        sub_ann.append((ls, le, llabel))
-
-            # sort by start time and write as ordered low_level child groups
-            sub_ann_sorted = sorted(sub_ann, key=lambda x: x[0])
-            low_grp = grp.create_group('low_level') if sub_ann_sorted else None
-            for sub_idx, (ls, le, llabel) in enumerate(sub_ann_sorted):
-                sg = low_grp.create_group(str(sub_idx))
-                sg.create_dataset('start', data=ms_to_s(ls))
-                sg.create_dataset('end', data=ms_to_s(le))
-                sg.create_dataset('success', data=1)
-                sg.create_dataset('text', data=str(llabel).encode('utf-8'))
-
-    print(f'Wrote {len(high_sorted)} high-level segments to {h5_path}')
+            low_level = assign_low_level_annotations((start_ms, end_ms, text), low_annotations)
+            if low_level:
+                low_group = segment_group.create_group("low_level")
+                for low_index, (low_start, low_end, low_text) in enumerate(low_level):
+                    low_group_item = low_group.create_group(str(low_index))
+                    low_group_item.create_dataset("start", data=ms_to_s(low_start))
+                    low_group_item.create_dataset("end", data=ms_to_s(low_end))
+                    low_group_item.create_dataset("success", data=1)
+                    low_group_item.create_dataset("text", data=low_text.encode("utf-8"))
 
 
-def main():
+def main() -> None:
     args = parse_args()
+
     if not os.path.exists(args.eaf):
-        print('EAF file not found:', args.eaf)
-        sys.exit(1)
+        raise SystemExit(f"EAF file not found: {args.eaf}")
 
-    print('Collecting high-level annotations from tier:', args.high_tier)
-    high_ann = collect_annotations(args.eaf, args.high_tier)
-    if not high_ann:
-        print('No annotations found in high tier', args.high_tier)
-        sys.exit(1)
+    high_annotations = load_tier_annotations(args.eaf, args.high_tier)
+    if not high_annotations:
+        raise SystemExit(f"No annotations found in high tier: {args.high_tier}")
 
-    low_map = {}
-    for lt in args.low_tier:
-        print('Collecting low-level annotations from tier:', lt)
-        low_map[lt] = collect_annotations(args.eaf, lt)
+    low_annotations: Dict[str, List[Annotation]] = {}
+    for tier_name in args.low_tier:
+        low_annotations[tier_name] = load_tier_annotations(args.eaf, tier_name)
 
-    write_segments_info(args.h5, high_ann, low_map, overwrite=args.overwrite, success_labels=args.success_labels)
+    write_segments_info(
+        h5_path=args.h5,
+        high_annotations=high_annotations,
+        low_annotations=low_annotations,
+        overwrite=args.overwrite,
+        success_labels=args.success_labels,
+    )
+
+    print(f"Converted {len(high_annotations)} high-level segments into {args.h5}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

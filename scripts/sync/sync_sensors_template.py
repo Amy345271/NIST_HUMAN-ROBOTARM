@@ -1,55 +1,67 @@
 """
-Template utilities for synchronizing multimodal sensors to annotation segments.
-Sensors expected in this project:
-- Cameras: panoramic, close, wrist (stored as HDF5 datasets / frames with timestamps)
-- Wristband (skin conductance): CSV with timestamp and value
-- Robot RTDE logs: CSV or HDF5 with timestamps
-- Eye tracker: CSV with timestamps
-- Two microphones: audio files or arrays with timestamps; human voice mic annotated in ELAN
-- Force/strain gauge: CSV/HDF5 with timestamps
+Synchronization template for the new NIST_HUMAN-ROBOTARM project.
 
-Approach:
-1. Ensure all sensors have timestamps in the same reference (seconds since epoch or recording start).
-2. Load annotation segments (HDF5 `segments_info`) as reference segments.
-3. For each segment, find timestamps/indices in each sensor that fall within [start, end].
-4. Align sensors to reference using nearest-timestamp or linear interpolation for continuous signals.
+You should adapt the sensor names to your actual files and HDF5 structure:
+- panoramic camera
+- close camera
+- wrist camera
+- skin conductance wristband CSV
+- RTDE robot logs
+- eye tracker
+- microphones
+- force / strain gauges
 
-This file contains small helper functions you'll expand for your data formats.
+The key idea is to use one reference timeline (usually timestamps from a camera or the
+recording computer) and align the other streams to the same start/end interval.
 """
 
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Dict, Iterable, List
+
 import numpy as np
-import h5py
-from typing import List
+
+
+@dataclass
+class Segment:
+    start: float
+    end: float
+    label: str
 
 
 def find_indices_between(timestamps: np.ndarray, start: float, end: float) -> List[int]:
-    # timestamps: 1D numpy array in seconds
+    timestamps = np.asarray(timestamps)
     return np.where((timestamps >= start) & (timestamps <= end))[0].tolist()
 
 
-def find_closest_indices(reference: np.ndarray, target: np.ndarray) -> np.ndarray:
-    """For each value in reference, find index in target with closest timestamp."""
-    reference = np.array(reference)
-    target = np.array(target)
-    diffs = np.abs(reference[:, None] - target[None, :])
+def closest_indices(reference_timestamps: np.ndarray, target_timestamps: np.ndarray) -> np.ndarray:
+    reference_timestamps = np.asarray(reference_timestamps)
+    target_timestamps = np.asarray(target_timestamps)
+    diffs = np.abs(reference_timestamps[:, None] - target_timestamps[None, :])
     return np.argmin(diffs, axis=1)
 
 
-def load_csv_timestamps(csv_path: str, time_col: str = 'timestamp') -> np.ndarray:
-    import pandas as pd
-    df = pd.read_csv(csv_path)
-    return df[time_col].to_numpy()
+def align_stream_to_segment(timestamps: np.ndarray, segment: Segment) -> List[int]:
+    return find_indices_between(timestamps, segment.start, segment.end)
 
 
-def extract_segment_data(h5_path: str, segment_start: float, segment_end: float):
-    with h5py.File(h5_path, 'r') as f:
-        timestamps = f['timestamps']
-        # example: get hand camera timestamps
-        hand_ts = timestamps['hand'][...]
-        indices = find_indices_between(hand_ts, segment_start, segment_end)
-        # extract frames, robot states, etc. similarly
-        return indices
+def align_multimodal_streams(
+    segment: Segment,
+    timestamps_by_sensor: Dict[str, np.ndarray],
+) -> Dict[str, List[int]]:
+    aligned: Dict[str, List[int]] = {}
+    for sensor_name, timestamps in timestamps_by_sensor.items():
+        aligned[sensor_name] = align_stream_to_segment(timestamps, segment)
+    return aligned
 
 
-if __name__ == '__main__':
-    print('Template sync utilities. Edit to match your file formats.')
+def summarize_alignment(segment: Segment, timestamps_by_sensor: Dict[str, np.ndarray]) -> None:
+    print(f"segment={segment.label} start={segment.start:.3f} end={segment.end:.3f}")
+    for sensor_name, timestamps in timestamps_by_sensor.items():
+        indices = align_stream_to_segment(timestamps, segment)
+        print(f"  {sensor_name}: {len(indices)} samples")
+
+
+if __name__ == "__main__":
+    print("Edit this template to match your sensor file formats and timestamp conventions.")

@@ -1,23 +1,23 @@
-# Python
+# Python caches and virtual environments
 __pycache__/
 *.py[cod]
-*.so
-
-# Env
-.env
+.venv/
 venv/
-.env.local
 
-# VSCode
+# IDE files
 .vscode/
+.idea/
 
-# Mac
+# OS files
 .DS_Store
+Thumbs.db
 
-# Data
-*.h5
-*.hdf5
+# Data and generated artifacts
+data/*.h5
+data/*.hdf5
+data/processed/
+output/
+results/
 
-# Logs
-logs/
-*.log
+# ELAN annotations can be large; keep locally unless intentionally versioned
+annotation/eaf/*.eaf
