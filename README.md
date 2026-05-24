@@ -62,6 +62,18 @@ Batch convert all `annotation/eaf/*.eaf` files when matching `.h5` files already
 python scripts\labeling\batch_eaf_to_h5.py --eaf-dir annotation\eaf --h5-dir data --high-tier HL --low-tier LL --overwrite
 ```
 
+批量转换说明（示例）：
+
+- 如果你的 ELAN 高层是 `voice`（本仓库示例），使用下面的命令：
+
+```powershell
+python scripts\labeling\batch_eaf_to_h5.py --eaf-dir annotation\eaf --h5-dir data --high-tier voice --low-tier LL --overwrite
+```
+
+- 批量脚本会匹配 `annotation/eaf/<basename>.eaf` 到 `data/<basename>.h5`；请确保两者基名一致。
+- 若有多个低层 tier，可重复使用 `--low-tier` 参数，例如 `--low-tier LL1 --low-tier LL2`。
+
+
 ## Notes
 
 - ELAN timestamps are stored in milliseconds; the scripts convert them to seconds for HDF5.
