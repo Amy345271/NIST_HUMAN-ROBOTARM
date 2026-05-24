@@ -67,3 +67,22 @@ python scripts\labeling\batch_eaf_to_h5.py --eaf-dir annotation\eaf --h5-dir dat
 - ELAN timestamps are stored in milliseconds; the scripts convert them to seconds for HDF5.
 - Keep tier names consistent with your ELAN tiers.
 - Avoid committing large raw sensor files unless needed; prefer storing them outside Git or using LFS.
+
+## 文档
+
+- [Git 使用入门指南](GIT_GUIDE.md)
+
+**进展**
+
+- **已完成**: 添加 [GIT_GUIDE.md](GIT_GUIDE.md)（Git 使用入门指南）
+- **已完成**: 增强 `scripts/labeling/eaf_to_h5.py` 的容错与提示（当指定 tier 不存在时列出可用 tiers）
+- **已完成**: 将 `annotation/eaf/1.eaf` 转换为 `data/1.h5`（单文件转换已执行）
+- **已完成**: 添加同步检查脚本 `scripts/sync/inspect_h5_timestamps.py`，用于列出 HDF5 中可用的时间戳数据集
+- **已完成**: 在 `scripts/labeling/` 和 `scripts/sync/` 中补充了若干模板与示例脚本
+
+**下一步（待完成）**
+
+- **验证**: 检查 `data/1.h5` 中的 `segments_info` 与时间戳是否一致（脚本位于 `scripts/sync/`）
+- **批量转换**: 使用 `scripts/labeling/batch_eaf_to_h5.py` 批量处理 `annotation/eaf/*.eaf`
+- **对齐同步**: 选择参考时间线（例如某个 camera 的 `timestamps`）并运行同步脚本对齐各传感器
+- **发布**: 网络可用时把本地提交 `git push` 到远程仓库
