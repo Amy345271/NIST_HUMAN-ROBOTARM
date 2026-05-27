@@ -15,6 +15,87 @@ This repository is the working directory for building a multimodal dataset and s
 - `scripts/labeling/` - annotation conversion utilities
 - `scripts/sync/` - synchronization helpers and templates
 
+## Multimodal data schema
+
+This project expects each recording to use the same basename across annotation and sensor files. For example, `1.eaf` should pair with `data/1.h5` and the same `<basename>` should be reused across sensor files.
+
+### Video data
+
+Directory:
+
+```text
+data/videos/
+```
+
+Expected file names:
+
+- Panoramic camera: `<basename>_cam1.mp4`
+- Close-up camera: `<basename>_cam2.mp4`
+- Wrist camera: `<basename>_cam3.mp4`
+
+### Audio data
+
+- Human voice microphone: `data/audio_people/<basename>.wav`
+- Environment microphone: `data/audio_environment/<basename>.wav`
+
+### Wrist sensor data (SCL / skin conductance)
+
+- File path: `data/wrist/<basename>_wrist.csv`
+- Expected fields:
+	- 相对时间_秒
+	- 原始日志时间戳
+	- GSR电压(V)
+	- 心率(bpm)
+	- 血氧(%)
+	- 加速度X(g)
+	- 加速度Y(g)
+	- 加速度Z(g)
+	- 陀螺仪X(°/s)
+	- 陀螺仪Y(°/s)
+	- 陀螺仪Z(°/s)
+	- 校验正确
+
+### RTDE robot data
+
+- File path: `data/robot/<basename>_rtde.csv`
+- Expected fields:
+	- `robot_timestamp`
+	- `pc_timestamp`
+	- `q0` - `q5`
+	- `curr0` - `curr5`
+	- `x`, `y`, `z`
+	- `rx`, `ry`, `rz`
+	- `fx`, `fy`, `fz`
+	- `mx`, `my`, `mz`
+	- `gripper_command`
+
+### Eye-tracking data
+
+- File path: `data/eye/<basename>_eyetracker.csv`
+- Expected fields:
+	- `session_time_s`
+	- `system_timestamp_us`
+	- `raw_timestamp_us`
+	- `x_norm`
+	- `y_norm`
+	- `validity`
+
+### Force sensor data
+
+- File path: `data/force/<basename>_force.csv`
+- Expected fields:
+	- `time_ms`
+	- `raw_value`
+	- `voltage_V`
+	- `force_N`
+
+### How this schema is used
+
+- ELAN annotations are converted into `segments_info` inside `data/<basename>.h5`.
+- Sensor import scripts should write timestamps into `/sensors/<sensor>/timestamps` whenever possible.
+- Sensor values should be written into `/sensors/<sensor>/values` or sensor-specific datasets when the structure is not a simple table.
+- The synchronization scripts align these timestamps against each segment in `segments_info`.
+
 ## Quick start
 
 ### Python environment
