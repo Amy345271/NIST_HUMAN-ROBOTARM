@@ -15,6 +15,7 @@ import glob
 import os
 import subprocess
 import sys
+import h5py
 
 
 def parse_args() -> argparse.Namespace:
@@ -43,9 +44,15 @@ def main() -> None:
         base_name = os.path.splitext(os.path.basename(eaf_path))[0]
         h5_path = os.path.join(args.h5_dir, base_name + ".h5")
         if not os.path.exists(h5_path):
-            print(f"[skip] missing HDF5: {h5_path}")
-            skipped += 1
-            continue
+            # create an empty HDF5 placeholder so converter can write segments_info
+            try:
+                with h5py.File(h5_path, 'w'):
+                    pass
+                print(f"[create] placeholder HDF5 created: {h5_path}")
+            except Exception as exc:
+                print(f"[skip] could not create HDF5: {h5_path} ({exc})")
+                skipped += 1
+                continue
 
         cmd = [
             args.python,

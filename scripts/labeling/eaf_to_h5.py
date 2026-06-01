@@ -154,7 +154,14 @@ def main() -> None:
 
     high_annotations = load_tier_annotations(args.eaf, args.high_tier)
     if not high_annotations:
-        raise SystemExit(f"No annotations found in high tier: {args.high_tier}")
+        try:
+            eaf_obj = pympi.Elan.Eaf(args.eaf)
+            available = eaf_obj.get_tier_names()
+        except Exception:
+            available = []
+        raise SystemExit(
+            f"No annotations found in high tier: {args.high_tier}. Available tiers: {available}"
+        )
 
     low_annotations: Dict[str, List[Annotation]] = {}
     for tier_name in args.low_tier:

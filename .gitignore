@@ -13,6 +13,7 @@ venv/
 Thumbs.db
 
 # Data and generated artifacts
+data/
 data/*.h5
 data/*.hdf5
 data/processed/
